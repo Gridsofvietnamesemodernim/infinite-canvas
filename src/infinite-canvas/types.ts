@@ -3,10 +3,17 @@ import type * as THREE from "three";
 export type MediaItem = {
   url: string;
   type: "image" | "video";
+  title?: string;
+  artist?: string;
+  year?: string;
+  link?: string;
+  width?: number;
+  height?: number;
 };
 
 export type InfiniteCanvasProps = {
   media: MediaItem[];
+  onReady?: () => void;
 };
 
 export type ChunkData = {
@@ -14,7 +21,6 @@ export type ChunkData = {
   cx: number;
   cy: number;
   cz: number;
-  visibility: number;
 };
 
 export type PlaneData = {

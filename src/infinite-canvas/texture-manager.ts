@@ -35,7 +35,11 @@ export const getTexture = (item: MediaItem): THREE.Texture | null => {
     return texture;
   }
 
-  const texture = new THREE.TextureLoader().load(item.url);
+  // By NOT passing a manager, this uses THREE.DefaultLoadingManager
+  const loader = new THREE.TextureLoader();
+  // AIC images support CORS properly, so we can re-enable this safely
+  loader.setCrossOrigin("anonymous");
+  const texture = loader.load(item.url);
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = true;

@@ -1,31 +1,128 @@
+import { useProgress } from "@react-three/drei";
+import * as React from "react";
 import { InfiniteCanvas } from "~/src/infinite-canvas";
-
-const media = [
-  { seed: "0", width: 1200, height: 800 },
-  { seed: "1", width: 800, height: 1200 },
-  { seed: "2", width: 1600, height: 900 },
-  { seed: "3", width: 900, height: 1600 },
-  { seed: "4", width: 1400, height: 1400 },
-  { seed: "5", width: 1280, height: 720 },
-  { seed: "6", width: 1024, height: 1365 },
-  { seed: "7", width: 1365, height: 1024 },
-  { seed: "8", width: 1100, height: 733 },
-  { seed: "9", width: 733, height: 1100 },
-  { seed: "10", width: 1500, height: 1000 },
-  { seed: "11", width: 1000, height: 1500 },
-  { seed: "12", width: 1920, height: 1080 },
-  { seed: "13", width: 1080, height: 1920 },
-  { seed: "14", width: 1300, height: 900 },
-  { seed: "15", width: 900, height: 1300 },
-  { seed: "16", width: 1800, height: 1200 },
-  { seed: "17", width: 1200, height: 1800 },
-  { seed: "18", width: 2048, height: 1365 },
-  { seed: "19", width: 1365, height: 2048 },
-].map(({ seed, width, height }) => ({
-  url: `https://picsum.photos/seed/${seed}/${width}/${height}`,
-  type: "image" as const,
-}));
+import { fetchArticArtworks } from "~/src/infinite-canvas/artic-api";
+import type { MediaItem } from "~/src/infinite-canvas/types";
+import { PageLoader } from "~/src/page-loader";
 
 export function App() {
-  return <InfiniteCanvas media={media} />;
+  const [media, setMedia] = React.useState<MediaItem[]>([]);
+  const [dataLoading, setDataLoading] = React.useState(true);
+  const [canvasReady, setCanvasReady] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [fetchProgress, setFetchProgress] = React.useState(0);
+
+  // Get texture loading progress from drei
+  const { active, progress: textureProgress } = useProgress();
+
+  // Combined loading state
+  const loading = dataLoading || !canvasReady;
+
+  // Calculate total progress
+  const totalProgress = React.useMemo(() => {
+    if (dataLoading) {
+      // Scale fetch progress to 0-40% (leave room for texture loading)
+      return fetchProgress * 0.4;
+    }
+    // Scale texture progress to 40-100%
+    if (canvasReady) return 100;
+
+    // When fetch is done but textures haven't started (e.g. mounting), show 40%
+    if (!active && textureProgress === 0) return 40;
+
+    return 40 + textureProgress * 0.6;
+  }, [dataLoading, fetchProgress, textureProgress, active, canvasReady]);
+
+  React.useEffect(() => {
+    let mounted = true;
+    const fetchId = Math.random();
+
+    const fetchAll = async () => {
+      try {
+        const batchSize = 100;
+        const totalToFetch = 500;
+        const totalPages = totalToFetch / batchSize;
+
+        let allArtworks: MediaItem[] = [];
+
+        for (let i = 1; i <= totalPages; i++) {
+          if (!mounted) break;
+
+          console.log(`[${fetchId}] Fetching batch ${i} of ${totalPages}...`);
+          const batch = await fetchArticArtworks(i, batchSize);
+
+          if (!mounted) break;
+
+          allArtworks = [...allArtworks, ...batch];
+          setFetchProgress((i / totalPages) * 100);
+        }
+
+        if (mounted) {
+          if (allArtworks.length === 0) {
+            setError("No artworks found from API.");
+          } else {
+            setMedia(allArtworks);
+          }
+          setDataLoading(false);
+        }
+      } catch (err) {
+        if (mounted) {
+          console.error("Failed to fetch artworks:", err);
+          setError(`Failed to load from API: ${err instanceof Error ? err.message : String(err)}`);
+          setDataLoading(false);
+        }
+      }
+    };
+
+    fetchAll();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const handleCanvasReady = React.useCallback(() => {
+    setCanvasReady(true);
+  }, []);
+
+  if (error) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          fontFamily: "sans-serif",
+          flexDirection: "column",
+          gap: "1rem",
+        }}
+      >
+        <div style={{ color: "red" }}>{error}</div>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          style={{
+            padding: "8px 16px",
+            cursor: "pointer",
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <PageLoader progress={totalProgress} />
+      {/* 
+        We only render the canvas if we have media. 
+        The PageLoader will cover the screen until loading is done AND the animation finishes.
+        Since we fetch all 500 items before setting loading=false, the user will see the full
+        set immediately when the loader lifts.
+      */}
+      {media.length > 0 && <InfiniteCanvas media={media} onReady={handleCanvasReady} />}
+    </>
+  );
 }

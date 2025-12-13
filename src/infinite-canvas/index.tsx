@@ -5,10 +5,10 @@ import type { InfiniteCanvasProps } from "./types";
 
 const LazyInfiniteCanvasScene = React.lazy(() => import("./scene").then((mod) => ({ default: mod.InfiniteCanvasScene })));
 
-export function InfiniteCanvas(props: InfiniteCanvasProps) {
+export function InfiniteCanvas({ media, onReady }: InfiniteCanvasProps) {
   return (
     <React.Suspense fallback={null}>
-      <LazyInfiniteCanvasScene {...props} />
+      <LazyInfiniteCanvasScene media={media} onReady={onReady} />
     </React.Suspense>
   );
 }

@@ -41,7 +41,7 @@ export const getMediaDimensions = (media: HTMLImageElement | HTMLVideoElement | 
 };
 
 // Generate planes for a chunk
-export const generateChunkPlanes = (cx: number, cy: number, cz: number, mediaCount: number): PlaneData[] => {
+export const generateChunkPlanes = (cx: number, cy: number, cz: number): PlaneData[] => {
   const planes: PlaneData[] = [];
   const seed = hashString(`${cx},${cy},${cz}`);
 
@@ -59,7 +59,9 @@ export const generateChunkPlanes = (cx: number, cy: number, cz: number, mediaCou
         cz * CHUNK_SIZE + r(2) * CHUNK_SIZE
       ),
       scale: new THREE.Vector3(size, size, 1),
-      mediaIndex: Math.floor(r(5) * mediaCount),
+      // Assign a stable, large random index.
+      // The Scene component will modulo this by the actual media length.
+      mediaIndex: Math.floor(r(5) * 1000000),
     });
   }
 
