@@ -3,7 +3,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as React from "react";
 import * as THREE from "three";
 import { useIsTouchDevice } from "~/src/use-is-touch-device";
-import { clamp, lerp, run } from "~/src/utils";
+import { clamp, lerp } from "~/src/utils";
 import {
   CHUNK_FADE_MARGIN,
   CHUNK_OFFSETS,
@@ -21,7 +21,7 @@ import {
 import styles from "./style.module.css";
 import { getTexture } from "./texture-manager";
 import type { ChunkData, InfiniteCanvasProps, MediaItem, PlaneData } from "./types";
-import { generateChunkPlanesCached, getChunkUpdateThrottleMs, getMediaDimensions, shouldThrottleUpdate } from "./utils";
+import { generateChunkPlanesCached, getChunkUpdateThrottleMs, shouldThrottleUpdate } from "./utils";
 
 const PLANE_GEOMETRY = new THREE.PlaneGeometry(1, 1);
 
@@ -123,19 +123,16 @@ function MediaPlane({
     mesh.visible = state.opacity > INVIS_THRESHOLD;
   });
 
-  const displayScale = run(() => {
+  // Calculate display scale from media dimensions (from manifest)
+  const displayScale = React.useMemo(() => {
     if (media.width && media.height) {
-      const aspect = media.width / media.height || 1;
+      const aspect = media.width / media.height;
       return new THREE.Vector3(scale.y * aspect, scale.y, 1);
     }
-    if (!texture) return scale;
+    return scale;
+  }, [media.width, media.height, scale]);
 
-    const { width, height } = getMediaDimensions(texture.image as HTMLImageElement | undefined);
-    if (!width || !height) return scale;
-
-    return new THREE.Vector3(scale.y * (width / height), scale.y, 1);
-  });
-
+  // Load texture with onLoad callback
   React.useEffect(() => {
     const state = localState.current;
     state.ready = false;
@@ -149,28 +146,15 @@ function MediaPlane({
       material.map = null;
     }
 
-    const tex = getTexture(media);
-    setTexture(tex);
-
-    const img = tex?.image as HTMLImageElement | undefined;
-    const markReady = () => {
+    const tex = getTexture(media, () => {
       state.ready = true;
       setIsReady(true);
-    };
+    });
 
-    if (!(img instanceof HTMLImageElement)) {
-      markReady();
-      return;
-    }
-
-    if (img.complete && img.naturalWidth > 0) {
-      markReady();
-    } else {
-      img.addEventListener("load", markReady, { once: true });
-      return () => img.removeEventListener("load", markReady);
-    }
+    setTexture(tex);
   }, [media]);
 
+  // Apply texture when ready
   React.useEffect(() => {
     const material = materialRef.current;
     const mesh = meshRef.current;
@@ -324,7 +308,6 @@ function SceneController({
     }
   }, [chunks, onReady, active, progress]);
 
-  // Mouse, touch, and wheel handlers (keyboard now handled by drei)
   React.useEffect(() => {
     const canvas = gl.domElement;
     const s = state.current;
@@ -426,7 +409,6 @@ function SceneController({
     const s = state.current;
     const now = performance.now();
 
-    // Keyboard input via drei
     const { forward, backward, left, right, up, down, fast } = getKeys();
     if (forward) s.targetVel.z -= KEYBOARD_SPEED;
     if (backward) s.targetVel.z += KEYBOARD_SPEED;
@@ -436,7 +418,6 @@ function SceneController({
     if (up) s.targetVel.y += KEYBOARD_SPEED;
     if (fast) s.targetVel.z -= KEYBOARD_SPEED * 1.5;
 
-    // Drift calculation
     const isZooming = Math.abs(s.velocity.z) > 0.05;
     const zoomFactor = clamp(s.basePos.z / 50, 0.3, 2.0);
     const driftAmount = 8.0 * zoomFactor;
@@ -450,7 +431,6 @@ function SceneController({
       s.drift.y = lerp(s.drift.y, 0, driftLerp);
     }
 
-    // Apply scroll and clamp velocity
     s.targetVel.z += s.scrollAccum;
     s.scrollAccum *= 0.8;
 
@@ -528,7 +508,7 @@ export function InfiniteCanvasScene({
   media,
   onReady,
   onTextureProgress,
-  showFps = true,
+  showFps = false,
   showControls = true,
   cameraFov = 60,
   cameraNear = 1,
@@ -550,11 +530,7 @@ export function InfiniteCanvasScene({
           camera={{ position: [0, 0, INITIAL_CAMERA_Z], fov: cameraFov, near: cameraNear, far: cameraFar }}
           dpr={dpr}
           flat
-          gl={{
-            antialias: false,
-            powerPreference: "high-performance",
-            outputColorSpace: THREE.SRGBColorSpace,
-          }}
+          gl={{ antialias: false, powerPreference: "high-performance" }}
           className={styles.canvas}
         >
           <color attach="background" args={[backgroundColor]} />
@@ -571,7 +547,7 @@ export function InfiniteCanvasScene({
               </>
             ) : (
               <>
-                <b>WASD</b> Move · <b>QE</b> Up/Down · <b>Scroll</b> Zoom
+                <b>WASD</b> Move · <b>QE</b> Up/Down · <b>Scroll/Space</b> Zoom
               </>
             )}
           </div>

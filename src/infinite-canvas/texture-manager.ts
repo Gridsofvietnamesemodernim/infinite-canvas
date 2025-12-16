@@ -3,8 +3,8 @@ import type { MediaItem } from "./types";
 
 const MAX_TEXTURES = 280;
 const lru = new Map<string, THREE.Texture>();
+const loadCallbacks = new Map<string, Set<(tex: THREE.Texture) => void>>();
 const loader = new THREE.TextureLoader();
-loader.setCrossOrigin("anonymous");
 
 const touch = (key: string) => {
   const tex = lru.get(key);
@@ -17,24 +17,58 @@ const evictIfNeeded = () => {
   while (lru.size > MAX_TEXTURES) {
     const [key, texture] = lru.entries().next().value as [string, THREE.Texture];
     lru.delete(key);
+    loadCallbacks.delete(key);
     texture.dispose();
   }
 };
 
-export const getTexture = (item: MediaItem): THREE.Texture | null => {
+const isTextureLoaded = (tex: THREE.Texture): boolean => {
+  const img = tex.image as HTMLImageElement | undefined;
+  return img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0;
+};
+
+export const getTexture = (item: MediaItem, onLoad?: (texture: THREE.Texture) => void): THREE.Texture => {
   const key = item.url;
   const existing = lru.get(key);
+
   if (existing) {
     touch(key);
+    if (onLoad) {
+      if (isTextureLoaded(existing)) {
+        onLoad(existing);
+      } else {
+        loadCallbacks.get(key)?.add(onLoad);
+      }
+    }
     return existing;
   }
 
-  const texture = loader.load(key);
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.generateMipmaps = true;
-  texture.anisotropy = 4;
-  texture.colorSpace = THREE.SRGBColorSpace;
+  const callbacks = new Set<(tex: THREE.Texture) => void>();
+  if (onLoad) callbacks.add(onLoad);
+  loadCallbacks.set(key, callbacks);
+
+  const texture = loader.load(
+    key,
+    (tex) => {
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.generateMipmaps = true;
+      tex.anisotropy = 4;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.needsUpdate = true;
+
+      loadCallbacks.get(key)?.forEach((cb) => {
+        try {
+          cb(tex);
+        } catch (err) {
+          console.error(`Callback failed: ${JSON.stringify(err)}`);
+        }
+      });
+      loadCallbacks.delete(key);
+    },
+    undefined,
+    (err) => console.error("Texture load failed:", key, err)
+  );
 
   lru.set(key, texture);
   evictIfNeeded();
