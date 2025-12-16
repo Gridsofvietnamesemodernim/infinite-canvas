@@ -9,34 +9,14 @@ import {
   CHUNK_OFFSETS,
   CHUNK_SIZE,
   DEPTH_FADE_END,
-  DEPTH_FADE_EXTRA,
   DEPTH_FADE_START,
-  DPR_MAX_DESKTOP,
-  DPR_MAX_TOUCH,
-  DRIFT_LERP_NORMAL,
-  DRIFT_LERP_ZOOMING,
-  FPS_UPDATE_INTERVAL,
-  FULL_OPACITY_THRESHOLD,
   INITIAL_CAMERA_Z,
   INVIS_THRESHOLD,
   KEYBOARD_SPEED,
-  MAX_DRIFT,
   MAX_VELOCITY,
-  MOUSE_DRAG_SENSITIVITY,
-  READY_DELAY,
   RENDER_DISTANCE,
-  SCROLL_ACCUM_DECAY,
-  SPACE_SPEED_MULTIPLIER,
-  TOUCH_DRAG_SENSITIVITY,
-  TOUCH_PINCH_SENSITIVITY,
   VELOCITY_DECAY,
   VELOCITY_LERP,
-  VISIBILITY_LERP,
-  WHEEL_SCROLL_SENSITIVITY,
-  ZOOM_FACTOR_BASE,
-  ZOOM_FACTOR_MAX,
-  ZOOM_FACTOR_MIN,
-  ZOOMING_THRESHOLD,
 } from "./constants";
 import styles from "./style.module.css";
 import { getTexture } from "./texture-manager";
@@ -90,7 +70,6 @@ function MediaPlane({
     const state = localState.current;
     if (!material || !mesh) return;
 
-    // Frame skip for invisible planes
     state.frame = (state.frame + 1) & 1;
     if (state.opacity < INVIS_THRESHOLD && !mesh.visible && state.frame === 0) return;
 
@@ -99,7 +78,7 @@ function MediaPlane({
     const absDepth = Math.abs(position.z - cam.camZ);
 
     // Early exit for far-away planes
-    if (absDepth > DEPTH_FADE_END + DEPTH_FADE_EXTRA) {
+    if (absDepth > DEPTH_FADE_END + 50) {
       state.opacity = 0;
       material.opacity = 0;
       material.depthWrite = false;
@@ -107,7 +86,6 @@ function MediaPlane({
       return;
     }
 
-    // Calculate target visibility from grid distance and depth
     const gridFade =
       dist <= RENDER_DISTANCE ? 1 : Math.max(0, 1 - (dist - RENDER_DISTANCE) / Math.max(CHUNK_FADE_MARGIN, 0.0001));
 
@@ -118,12 +96,9 @@ function MediaPlane({
 
     const target = Math.min(gridFade, depthFade * depthFade);
 
-    // Lerp opacity toward target
-    state.opacity =
-      target < INVIS_THRESHOLD && state.opacity < INVIS_THRESHOLD ? 0 : lerp(state.opacity, target, VISIBILITY_LERP);
+    state.opacity = target < INVIS_THRESHOLD && state.opacity < INVIS_THRESHOLD ? 0 : lerp(state.opacity, target, 0.18);
 
-    // Apply to material
-    const isFullyOpaque = state.opacity > FULL_OPACITY_THRESHOLD;
+    const isFullyOpaque = state.opacity > 0.99;
     material.opacity = isFullyOpaque ? 1 : state.opacity;
     material.depthWrite = isFullyOpaque;
     mesh.visible = state.opacity > INVIS_THRESHOLD;
@@ -256,7 +231,6 @@ function Chunk({
   );
 }
 
-// Consolidated input + motion state
 type ControllerState = {
   velocity: { x: number; y: number; z: number };
   targetVel: { x: number; y: number; z: number };
@@ -338,12 +312,11 @@ function SceneController({
           readySent.current = true;
           onReady?.();
         }
-      }, READY_DELAY);
+      }, 50);
       return () => clearTimeout(t);
     }
   }, [chunks, onReady, active, progress]);
 
-  // Input event handlers
   React.useEffect(() => {
     const canvas = gl.domElement;
     const s = state.current;
@@ -382,15 +355,15 @@ function SceneController({
         y: -(e.clientY / window.innerHeight) * 2 + 1,
       };
       if (s.isDragging) {
-        s.targetVel.x -= (e.clientX - s.lastMouse.x) * MOUSE_DRAG_SENSITIVITY;
-        s.targetVel.y += (e.clientY - s.lastMouse.y) * MOUSE_DRAG_SENSITIVITY;
+        s.targetVel.x -= (e.clientX - s.lastMouse.x) * 0.025;
+        s.targetVel.y += (e.clientY - s.lastMouse.y) * 0.025;
         s.lastMouse = { x: e.clientX, y: e.clientY };
       }
     };
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      s.scrollAccum += e.deltaY * WHEEL_SCROLL_SENSITIVITY;
+      s.scrollAccum += e.deltaY * 0.006;
     };
 
     const onTouchStart = (e: TouchEvent) => {
@@ -408,12 +381,12 @@ function SceneController({
         const [touch] = touches;
         const [last] = s.lastTouches;
         if (touch && last) {
-          s.targetVel.x -= (touch.clientX - last.clientX) * TOUCH_DRAG_SENSITIVITY;
-          s.targetVel.y += (touch.clientY - last.clientY) * TOUCH_DRAG_SENSITIVITY;
+          s.targetVel.x -= (touch.clientX - last.clientX) * 0.02;
+          s.targetVel.y += (touch.clientY - last.clientY) * 0.02;
         }
       } else if (touches.length === 2 && s.lastTouchDist > 0) {
         const dist = getTouchDistance(touches);
-        s.scrollAccum += (s.lastTouchDist - dist) * TOUCH_PINCH_SENSITIVITY;
+        s.scrollAccum += (s.lastTouchDist - dist) * 0.006;
         s.lastTouchDist = dist;
       }
 
@@ -457,7 +430,7 @@ function SceneController({
 
     // FPS counter
     s.fpsFrames++;
-    if (now - s.fpsTime >= FPS_UPDATE_INTERVAL) {
+    if (now - s.fpsTime >= 400) {
       onFpsUpdate?.(Math.round(s.fpsFrames / ((now - s.fpsTime) / 1000)));
       s.fpsFrames = 0;
       s.fpsTime = now;
@@ -471,13 +444,13 @@ function SceneController({
     if (k.has("d") || k.has("arrowright")) s.targetVel.x += KEYBOARD_SPEED;
     if (k.has("q")) s.targetVel.y -= KEYBOARD_SPEED;
     if (k.has("e")) s.targetVel.y += KEYBOARD_SPEED;
-    if (k.has(" ")) s.targetVel.z -= KEYBOARD_SPEED * SPACE_SPEED_MULTIPLIER;
+    if (k.has(" ")) s.targetVel.z -= KEYBOARD_SPEED * 1.5;
 
-    // Drift calculation
-    const isZooming = Math.abs(s.velocity.z) > ZOOMING_THRESHOLD;
-    const zoomFactor = clamp(s.basePos.z / ZOOM_FACTOR_BASE, ZOOM_FACTOR_MIN, ZOOM_FACTOR_MAX);
-    const driftAmount = MAX_DRIFT * zoomFactor;
-    const driftLerp = isZooming ? DRIFT_LERP_ZOOMING : DRIFT_LERP_NORMAL;
+    // Drift calculation (ZOOMING_THRESHOLD = 0.05)
+    const isZooming = Math.abs(s.velocity.z) > 0.05;
+    const zoomFactor = clamp(s.basePos.z / 50, 0.3, 2.0);
+    const driftAmount = 8.0 * zoomFactor;
+    const driftLerp = isZooming ? 0.2 : 0.12;
 
     if (!s.isDragging && !isTouchDevice) {
       s.drift.x = lerp(s.drift.x, s.mouse.x * driftAmount, driftLerp);
@@ -489,13 +462,12 @@ function SceneController({
 
     // Apply scroll and clamp velocity
     s.targetVel.z += s.scrollAccum;
-    s.scrollAccum *= SCROLL_ACCUM_DECAY;
+    s.scrollAccum *= 0.8;
 
     s.targetVel.x = clamp(s.targetVel.x, -MAX_VELOCITY, MAX_VELOCITY);
     s.targetVel.y = clamp(s.targetVel.y, -MAX_VELOCITY, MAX_VELOCITY);
     s.targetVel.z = clamp(s.targetVel.z, -MAX_VELOCITY, MAX_VELOCITY);
 
-    // Lerp and apply velocity
     s.velocity.x = lerp(s.velocity.x, s.targetVel.x, VELOCITY_LERP);
     s.velocity.y = lerp(s.velocity.y, s.targetVel.y, VELOCITY_LERP);
     s.velocity.z = lerp(s.velocity.z, s.targetVel.z, VELOCITY_LERP);
@@ -506,19 +478,16 @@ function SceneController({
 
     camera.position.set(s.basePos.x + s.drift.x, s.basePos.y + s.drift.y, s.basePos.z);
 
-    // Decay
     s.targetVel.x *= VELOCITY_DECAY;
     s.targetVel.y *= VELOCITY_DECAY;
     s.targetVel.z *= VELOCITY_DECAY;
 
-    // Update camera grid state
     const cx = Math.floor(s.basePos.x / CHUNK_SIZE);
     const cy = Math.floor(s.basePos.y / CHUNK_SIZE);
     const cz = Math.floor(s.basePos.z / CHUNK_SIZE);
 
     cameraGridRef.current = { cx, cy, cz, camZ: s.basePos.z };
 
-    // Chunk updates with throttling
     const key = `${cx},${cy},${cz}`;
     if (key !== s.lastChunkKey) {
       s.pendingChunk = { cx, cy, cz };
@@ -542,7 +511,6 @@ function SceneController({
     }
   });
 
-  // Initialize chunks on mount
   React.useEffect(() => {
     const s = state.current;
     s.basePos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
@@ -570,7 +538,7 @@ export function InfiniteCanvasScene({
   media,
   onReady,
   onTextureProgress,
-  showFps = true,
+  showFps = false,
   showControls = true,
   cameraFov = 60,
   cameraNear = 1,
@@ -583,7 +551,7 @@ export function InfiniteCanvasScene({
   const [fps, setFps] = React.useState(0);
   const isTouchDevice = useIsTouchDevice();
 
-  const dpr = Math.min(window.devicePixelRatio || 1, isTouchDevice ? DPR_MAX_TOUCH : DPR_MAX_DESKTOP);
+  const dpr = Math.min(window.devicePixelRatio || 1, isTouchDevice ? 1.25 : 1.5);
 
   if (!media.length) return null;
 

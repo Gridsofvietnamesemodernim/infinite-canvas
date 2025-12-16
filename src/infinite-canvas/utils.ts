@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { hashString, seededRandom } from "~/src/utils";
-import { CHUNK_SIZE, ITEMS_PER_CHUNK } from "./constants";
+import { CHUNK_SIZE } from "./constants";
 import type { PlaneData } from "./types";
 
 const MAX_PLANE_CACHE = 256;
@@ -22,8 +22,7 @@ const evictPlaneCache = () => {
 };
 
 export const getChunkUpdateThrottleMs = (isZooming: boolean, zoomSpeed: number): number => {
-  const isVeryFastZoom = zoomSpeed > 1.0;
-  if (isVeryFastZoom) return 500;
+  if (zoomSpeed > 1.0) return 500;
   if (isZooming) return 400;
   return 100;
 };
@@ -31,7 +30,6 @@ export const getChunkUpdateThrottleMs = (isZooming: boolean, zoomSpeed: number):
 export const getMediaDimensions = (media: HTMLImageElement | undefined) => {
   const width = media instanceof HTMLImageElement ? media.naturalWidth || media.width : undefined;
   const height = media instanceof HTMLImageElement ? media.naturalHeight || media.height : undefined;
-
   return { width, height };
 };
 
@@ -39,10 +37,10 @@ export const generateChunkPlanes = (cx: number, cy: number, cz: number): PlaneDa
   const planes: PlaneData[] = [];
   const seed = hashString(`${cx},${cy},${cz}`);
 
-  for (let i = 0; i < ITEMS_PER_CHUNK; i++) {
+  // ITEMS_PER_CHUNK = 5
+  for (let i = 0; i < 5; i++) {
     const s = seed + i * 1000;
     const r = (n: number) => seededRandom(s + n);
-
     const size = 12 + r(4) * 8;
 
     planes.push({
