@@ -1,26 +1,9 @@
 import * as THREE from "three";
 import type { MediaItem } from "./types";
 
-const MAX_TEXTURES = 280;
-const lru = new Map<string, THREE.Texture>();
+const textureCache = new Map<string, THREE.Texture>();
 const loadCallbacks = new Map<string, Set<(tex: THREE.Texture) => void>>();
 const loader = new THREE.TextureLoader();
-
-const touch = (key: string) => {
-  const tex = lru.get(key);
-  if (!tex) return;
-  lru.delete(key);
-  lru.set(key, tex);
-};
-
-const evictIfNeeded = () => {
-  while (lru.size > MAX_TEXTURES) {
-    const [key, texture] = lru.entries().next().value as [string, THREE.Texture];
-    lru.delete(key);
-    loadCallbacks.delete(key);
-    texture.dispose();
-  }
-};
 
 const isTextureLoaded = (tex: THREE.Texture): boolean => {
   const img = tex.image as HTMLImageElement | undefined;
@@ -29,10 +12,9 @@ const isTextureLoaded = (tex: THREE.Texture): boolean => {
 
 export const getTexture = (item: MediaItem, onLoad?: (texture: THREE.Texture) => void): THREE.Texture => {
   const key = item.url;
-  const existing = lru.get(key);
+  const existing = textureCache.get(key);
 
   if (existing) {
-    touch(key);
     if (onLoad) {
       if (isTextureLoaded(existing)) {
         onLoad(existing);
@@ -70,7 +52,6 @@ export const getTexture = (item: MediaItem, onLoad?: (texture: THREE.Texture) =>
     (err) => console.error("Texture load failed:", key, err)
   );
 
-  lru.set(key, texture);
-  evictIfNeeded();
+  textureCache.set(key, texture);
   return texture;
 };

@@ -266,15 +266,7 @@ const createInitialState = (camZ: number): ControllerState => ({
   pendingChunk: null,
 });
 
-function SceneController({
-  media,
-  onReady,
-  onTextureProgress,
-}: {
-  media: MediaItem[];
-  onReady?: () => void;
-  onTextureProgress?: (progress: number) => void;
-}) {
+function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onTextureProgress?: (progress: number) => void }) {
   const { camera, gl } = useThree();
   const isTouchDevice = useIsTouchDevice();
   const [, getKeys] = useKeyboardControls<keyof KeyboardKeys>();
@@ -284,8 +276,7 @@ function SceneController({
 
   const [chunks, setChunks] = React.useState<ChunkData[]>([]);
 
-  const { active, progress } = useProgress();
-  const readySent = React.useRef(false);
+  const { progress } = useProgress();
   const maxProgress = React.useRef(0);
 
   React.useEffect(() => {
@@ -295,18 +286,6 @@ function SceneController({
       onTextureProgress?.(rounded);
     }
   }, [progress, onTextureProgress]);
-
-  React.useEffect(() => {
-    if (chunks.length > 0 && !readySent.current && !active && progress === 100) {
-      const t = setTimeout(() => {
-        if (!readySent.current) {
-          readySent.current = true;
-          onReady?.();
-        }
-      }, 50);
-      return () => clearTimeout(t);
-    }
-  }, [chunks, onReady, active, progress]);
 
   React.useEffect(() => {
     const canvas = gl.domElement;
@@ -511,7 +490,6 @@ function SceneController({
 
 export function InfiniteCanvasScene({
   media,
-  onReady,
   onTextureProgress,
   showFps = false,
   showControls = false,
@@ -540,7 +518,7 @@ export function InfiniteCanvasScene({
         >
           <color attach="background" args={[backgroundColor]} />
           <fog attach="fog" args={[fogColor, fogNear, fogFar]} />
-          <SceneController media={media} onReady={onReady} onTextureProgress={onTextureProgress} />
+          <SceneController media={media} onTextureProgress={onTextureProgress} />
           {showFps && <Stats className={styles.stats} />}
         </Canvas>
 
