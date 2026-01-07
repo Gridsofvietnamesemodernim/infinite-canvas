@@ -9,13 +9,16 @@
   justify-items: start;
   grid-template-columns: auto auto auto 1fr;
   grid-template-areas:
-    "title title title title"
-    "back archive github ..."
-    "demos demos demos demos"
-    "tags tags tags tags"
-    "sponsor sponsor sponsor sponsor";
+    'title title title title'
+    'back archive github ...'
+    'demos demos demos demos'
+    'tags tags tags tags'
+    'sponsor sponsor sponsor sponsor';
   color: #fff;
   mix-blend-mode: difference;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 300;
+  text-transform: uppercase;
 }
 
 .frame a,
@@ -27,7 +30,8 @@
 
 .frame__title {
   grid-area: title;
-  font-size: inherit;
+  font-family: 'Asul', serif;
+  font-weight: 400;
   margin: 0;
   color: #fff;
   mix-blend-mode: difference;
@@ -51,19 +55,10 @@
   grid-area: tags;
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 2rem;
 }
 
 .frame__tags a {
-  color: #fff;
-  mix-blend-mode: difference;
-}
-
-.frame__demos {
-  grid-area: demos;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
   color: #fff;
   mix-blend-mode: difference;
 }
@@ -76,12 +71,18 @@
     top: 0;
     left: 0;
     width: 100%;
-    grid-template-columns: auto auto auto auto 1fr;
-    grid-template-rows: auto auto;
+    grid-template-columns: auto auto auto 1fr;
+    grid-template-rows: auto auto auto;
     align-content: space-between;
     grid-template-areas:
-      "title back github archive demos"
-      "tags tags tags sponsor sponsor";
+      'back github archive ... ...'
+      'title title title title title'
+      'tags tags tags tags sponsor';
+  }
+
+  .frame__title {
+    justify-self: center;
+    font-size: clamp(2rem, 5vw, 3rem);
   }
 
   .frame__tags {
