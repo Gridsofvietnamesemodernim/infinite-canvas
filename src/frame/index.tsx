@@ -13,6 +13,10 @@ export function Frame() {
       <a className={styles.frame__github} href="https://github.com/edoardolunardi/infinite-canvas">
         GitHub
       </a>
+      <div className={styles.frame__credits}>
+        <span>By </span>
+        <a href="https://www.edoardolunardi.dev/">Edoardo Lunardi</a>
+      </div>
       <nav className={styles.frame__tags}>
         <a href="https://tympanus.net/codrops/demos/?tag=scroll">#scroll</a>
         <a href="https://tympanus.net/codrops/demos/?tag=infinite">#inifinite</a>

@@ -51,6 +51,10 @@
   grid-area: github;
 }
 
+.frame__credits {
+  grid-area: credits;
+}
+
 .frame__tags {
   grid-area: tags;
   display: flex;
@@ -75,7 +79,7 @@
     grid-template-rows: auto auto auto;
     align-content: space-between;
     grid-template-areas:
-      'back github archive ... ...'
+      'back github archive ... credits'
       'title title title title title'
       'tags tags tags tags sponsor';
   }
@@ -89,9 +93,8 @@
     align-self: end;
   }
 
-  .frame__demos {
+  .frame__credits {
     justify-self: end;
     text-align: right;
-    max-width: 300px;
   }
 }
