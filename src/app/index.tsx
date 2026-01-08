@@ -1,22 +1,23 @@
 import { Canvas } from "@react-three/fiber";
-import { Leva } from "leva";
-import { Experience } from "./components/Experience";
+import { Experience } from "../components/Experience";
+import styles from "./style.module.css";
 
-function App() {
+/* FIX: We changed 'export default function' to 'export function' 
+   This matches what your project expects.
+*/
+export function App() {
   return (
     <>
-      <Leva hidden />
-      {/* The 3D Canvas Scene */}
-      <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
-        <color attach="background" args={["#ececec"]} />
-        <Experience />
-      </Canvas>
-      
-      {/* I have removed the <div className="frame"> section here.
-         Now only the Canvas remains.
+      {/* I removed <Leva /> completely. 
+         This fixes the "Module not found" error and cleans up the UI.
       */}
+      
+      <div className={styles.canvas}>
+        <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
+          <color attach="background" args={["#ececec"]} />
+          <Experience />
+        </Canvas>
+      </div>
     </>
   );
 }
-
-export default App;
