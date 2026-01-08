@@ -1,6 +1,6 @@
 import * as React from "react";
 import manifest from "~/src/artworks/manifest.json";
-import { Frame } from "~/src/frame";
+/* I removed the "Frame" import here because we are deleting the text overlay */
 import { InfiniteCanvas } from "~/src/infinite-canvas";
 import type { MediaItem } from "~/src/infinite-canvas/types";
 import { PageLoader } from "~/src/loader";
@@ -15,7 +15,9 @@ export function App() {
 
   return (
     <>
-      <Frame />
+      {/* I removed <Frame /> from this line. 
+          Now the text, titles, and links are gone. */}
+      
       <PageLoader progress={textureProgress} />
       <InfiniteCanvas media={media} onTextureProgress={setTextureProgress} />
     </>
