@@ -61,6 +61,7 @@ type CameraGridState = {
   camZ: number;
 };
 
+// --- MODIFIED: Added Props for Tagging ---
 function MediaPlane({
   position,
   scale,
@@ -69,6 +70,8 @@ function MediaPlane({
   chunkCy,
   chunkCz,
   cameraGridRef,
+  activeTag,
+  onToggleTag,
 }: {
   position: THREE.Vector3;
   scale: THREE.Vector3;
@@ -77,10 +80,18 @@ function MediaPlane({
   chunkCy: number;
   chunkCz: number;
   cameraGridRef: React.RefObject<CameraGridState>;
+  activeTag: string | null;
+  onToggleTag: (tag: string) => void;
 }) {
   const meshRef = React.useRef<THREE.Mesh>(null);
   const materialRef = React.useRef<THREE.MeshBasicMaterial>(null);
   const localState = React.useRef({ opacity: 0, frame: 0, ready: false });
+
+  // We use a ref for activeTag so the animation loop can see it instantly without re-binding
+  const activeTagRef = React.useRef(activeTag);
+  React.useEffect(() => {
+    activeTagRef.current = activeTag;
+  }, [activeTag]);
 
   const [texture, setTexture] = React.useState<THREE.Texture | null>(null);
   const [isReady, setIsReady] = React.useState(false);
@@ -120,7 +131,19 @@ function MediaPlane({
         ? 1
         : Math.max(0, 1 - (absDepth - DEPTH_FADE_START) / Math.max(DEPTH_FADE_END - DEPTH_FADE_START, 0.0001));
 
-    const target = Math.min(gridFade, depthFade * depthFade);
+    let target = Math.min(gridFade, depthFade * depthFade);
+
+    // --- NEW FEATURE: Dimming Logic ---
+    // If a tag is active, and this image doesn't match, fade it out
+    const currentActiveTag = activeTagRef.current;
+    if (currentActiveTag) {
+        // @ts-ignore - 'tags' might not be in the typescript definition yet, but it is in your JSON
+        const imageTags = media.tags || [];
+        if (!imageTags.includes(currentActiveTag)) {
+            target = target * 0.05; // Dim to 5% opacity
+        }
+    }
+    // ----------------------------------
 
     state.opacity = target < INVIS_THRESHOLD && state.opacity < INVIS_THRESHOLD ? 0 : lerp(state.opacity, target, 0.18);
 
@@ -130,17 +153,14 @@ function MediaPlane({
     mesh.visible = state.opacity > INVIS_THRESHOLD;
   });
 
-  // Calculate display scale from media dimensions (from manifest)
   const displayScale = React.useMemo(() => {
     if (media.width && media.height) {
       const aspect = media.width / media.height;
       return new THREE.Vector3(scale.y * aspect, scale.y, 1);
     }
-
     return scale;
   }, [media.width, media.height, scale]);
 
-  // Load texture with onLoad callback
   React.useEffect(() => {
     const state = localState.current;
     state.ready = false;
@@ -163,7 +183,6 @@ function MediaPlane({
     setTexture(tex);
   }, [media]);
 
-  // Apply texture when ready
   React.useEffect(() => {
     const material = materialRef.current;
     const mesh = meshRef.current;
@@ -184,7 +203,25 @@ function MediaPlane({
   }
 
   return (
-    <mesh ref={meshRef} position={position} scale={displayScale} visible={false} geometry={PLANE_GEOMETRY}>
+    <mesh 
+        ref={meshRef} 
+        position={position} 
+        scale={displayScale} 
+        visible={false} 
+        geometry={PLANE_GEOMETRY}
+        // --- NEW FEATURE: Click Handler ---
+        onClick={(e) => {
+            e.stopPropagation(); // Prevent clicking through to background
+            // @ts-ignore
+            const tags = media.tags;
+            if (tags && tags.length > 0) {
+                onToggleTag(tags[0]);
+            }
+        }}
+        // Change cursor to pointer if clickable
+        onPointerOver={() => { document.body.style.cursor = 'pointer' }}
+        onPointerOut={() => { document.body.style.cursor = 'auto' }}
+    >
       <meshBasicMaterial ref={materialRef} transparent opacity={0} side={THREE.DoubleSide} />
     </mesh>
   );
@@ -196,12 +233,16 @@ function Chunk({
   cz,
   media,
   cameraGridRef,
+  activeTag,
+  onToggleTag
 }: {
   cx: number;
   cy: number;
   cz: number;
   media: MediaItem[];
   cameraGridRef: React.RefObject<CameraGridState>;
+  activeTag: string | null;
+  onToggleTag: (tag: string) => void;
 }) {
   const [planes, setPlanes] = React.useState<PlaneData[] | null>(null);
 
@@ -211,7 +252,6 @@ function Chunk({
 
     if (typeof requestIdleCallback !== "undefined") {
       const id = requestIdleCallback(run, { timeout: 100 });
-
       return () => {
         canceled = true;
         cancelIdleCallback(id);
@@ -248,6 +288,9 @@ function Chunk({
             chunkCy={cy}
             chunkCz={cz}
             cameraGridRef={cameraGridRef}
+            // Pass the tag logic down
+            activeTag={activeTag}
+            onToggleTag={onToggleTag}
           />
         );
       })}
@@ -292,6 +335,18 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
   const isTouchDevice = useIsTouchDevice();
   const [, getKeys] = useKeyboardControls<keyof KeyboardKeys>();
 
+  // --- NEW STATE: Active Tag ---
+  const [activeTag, setActiveTag] = React.useState<string | null>(null);
+  
+  // Toggle function: if you click the same tag twice, it deselects
+  const handleToggleTag = React.useCallback((tag: string) => {
+    setActiveTag((prev) => (prev === tag ? null : tag));
+  }, []);
+
+  // Clear tag if clicking empty space (optional, handled via PointerMissed on Canvas usually, but we can do simple here)
+  // For now, we rely on clicking the same image to toggle off.
+  // -----------------------------
+
   const state = React.useRef<ControllerState>(createInitialState(INITIAL_CAMERA_Z));
   const cameraGridRef = React.useRef<CameraGridState>({ cx: 0, cy: 0, cz: 0, camZ: camera.position.z });
 
@@ -319,7 +374,6 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
     };
 
     const onMouseDown = (e: MouseEvent) => {
-      // Just start dragging - keep drift frozen at current value
       s.isDragging = true;
       s.lastMouse = { x: e.clientX, y: e.clientY };
       setCursor("grabbing");
@@ -427,7 +481,7 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
     const driftLerp = isZooming ? 0.2 : 0.12;
 
     if (s.isDragging) {
-      // Freeze drift during drag - keep it at current value
+      // Freeze drift during drag
     } else if (isTouchDevice) {
       s.drift.x = lerp(s.drift.x, 0, driftLerp);
       s.drift.y = lerp(s.drift.y, 0, driftLerp);
@@ -501,12 +555,26 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
     );
   }, [camera]);
 
+  // Handle clicking empty space to clear selection
+  const handleMissed = () => setActiveTag(null);
+
   return (
-    <>
+    // We attach pointer missed listener to a group wrapper
+    <group onPointerMissed={handleMissed}>
       {chunks.map((chunk) => (
-        <Chunk key={chunk.key} cx={chunk.cx} cy={chunk.cy} cz={chunk.cz} media={media} cameraGridRef={cameraGridRef} />
+        <Chunk 
+            key={chunk.key} 
+            cx={chunk.cx} 
+            cy={chunk.cy} 
+            cz={chunk.cz} 
+            media={media} 
+            cameraGridRef={cameraGridRef}
+            // Pass State
+            activeTag={activeTag}
+            onToggleTag={handleToggleTag}
+        />
       ))}
-    </>
+    </group>
   );
 }
 
