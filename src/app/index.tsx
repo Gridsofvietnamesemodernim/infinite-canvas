@@ -1,5 +1,5 @@
 import { Canvas } from "@react-three/fiber";
-import { Experience } from "./components/Experience";
+import { Experience } from "../components/Experience";
 import styles from "./style.module.css";
 
 /* FIX: We changed 'export default function' to 'export function' 
