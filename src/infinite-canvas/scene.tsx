@@ -1,4 +1,4 @@
-import { KeyboardControls, Stats, useKeyboardControls, useProgress } from "@react-three/drei";
+import { KeyboardControls, Stats, useKeyboardControls, useProgress, Text } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as React from "react";
 import * as THREE from "three";
@@ -61,7 +61,6 @@ type CameraGridState = {
   camZ: number;
 };
 
-// --- MODIFIED: Added Props for Tagging ---
 function MediaPlane({
   position,
   scale,
@@ -71,7 +70,8 @@ function MediaPlane({
   chunkCz,
   cameraGridRef,
   activeTag,
-  onToggleTag,
+  isSelected,
+  onInteraction,
 }: {
   position: THREE.Vector3;
   scale: THREE.Vector3;
@@ -81,13 +81,14 @@ function MediaPlane({
   chunkCz: number;
   cameraGridRef: React.RefObject<CameraGridState>;
   activeTag: string | null;
-  onToggleTag: (tag: string) => void;
+  isSelected: boolean;
+  onInteraction: (tag: string, url: string) => void;
 }) {
   const meshRef = React.useRef<THREE.Mesh>(null);
   const materialRef = React.useRef<THREE.MeshBasicMaterial>(null);
   const localState = React.useRef({ opacity: 0, frame: 0, ready: false });
 
-  // We use a ref for activeTag so the animation loop can see it instantly without re-binding
+  // Ref to track props in the loop without re-rendering
   const activeTagRef = React.useRef(activeTag);
   React.useEffect(() => {
     activeTagRef.current = activeTag;
@@ -133,17 +134,15 @@ function MediaPlane({
 
     let target = Math.min(gridFade, depthFade * depthFade);
 
-    // --- NEW FEATURE: Dimming Logic ---
-    // If a tag is active, and this image doesn't match, fade it out
+    // --- Dimming Logic ---
     const currentActiveTag = activeTagRef.current;
     if (currentActiveTag) {
-        // @ts-ignore - 'tags' might not be in the typescript definition yet, but it is in your JSON
+        // @ts-ignore
         const imageTags = media.tags || [];
         if (!imageTags.includes(currentActiveTag)) {
-            target = target * 0.05; // Dim to 5% opacity
+            target = target * 0.05;
         }
     }
-    // ----------------------------------
 
     state.opacity = target < INVIS_THRESHOLD && state.opacity < INVIS_THRESHOLD ? 0 : lerp(state.opacity, target, 0.18);
 
@@ -202,28 +201,61 @@ function MediaPlane({
     return null;
   }
 
+  // --- NEW: Group Wrapper to hold Image AND Text ---
   return (
-    <mesh 
-        ref={meshRef} 
-        position={position} 
-        scale={displayScale} 
-        visible={false} 
-        geometry={PLANE_GEOMETRY}
-        // --- NEW FEATURE: Click Handler ---
-        onClick={(e) => {
-            e.stopPropagation(); // Prevent clicking through to background
-            // @ts-ignore
-            const tags = media.tags;
-            if (tags && tags.length > 0) {
-                onToggleTag(tags[0]);
-            }
-        }}
-        // Change cursor to pointer if clickable
-        onPointerOver={() => { document.body.style.cursor = 'pointer' }}
-        onPointerOut={() => { document.body.style.cursor = 'auto' }}
-    >
-      <meshBasicMaterial ref={materialRef} transparent opacity={0} side={THREE.DoubleSide} />
-    </mesh>
+    <group position={position}>
+        <mesh 
+            ref={meshRef} 
+            // Position is now 0,0,0 relative to the group
+            position={[0,0,0]} 
+            scale={displayScale} 
+            visible={false} 
+            geometry={PLANE_GEOMETRY}
+            onClick={(e) => {
+                e.stopPropagation();
+                // @ts-ignore
+                const tags = media.tags;
+                if (tags && tags.length > 0) {
+                    onInteraction(tags[0], media.url);
+                }
+            }}
+            onPointerOver={() => { document.body.style.cursor = 'pointer' }}
+            onPointerOut={() => { document.body.style.cursor = 'auto' }}
+        >
+        <meshBasicMaterial ref={materialRef} transparent opacity={0} side={THREE.DoubleSide} />
+        </mesh>
+
+        {/* --- TEXT COMPONENT --- */}
+        {/* Only render if this specific image is selected */}
+        {isSelected && (
+            <group position={[0, -displayScale.y / 2 - 0.1, 0]}>
+                {/* Title */}
+                {/* @ts-ignore */}
+                <Text
+                    fontSize={0.2}
+                    color="black"
+                    anchorX="center"
+                    anchorY="top"
+                >
+                    {/* @ts-ignore */}
+                    {media.title || ""}
+                </Text>
+                
+                {/* Info / Year (Smaller, below title) */}
+                {/* @ts-ignore */}
+                <Text
+                    position={[0, -0.25, 0]}
+                    fontSize={0.12}
+                    color="#666666"
+                    anchorX="center"
+                    anchorY="top"
+                >
+                    {/* @ts-ignore */}
+                    {media.info || ""}
+                </Text>
+            </group>
+        )}
+    </group>
   );
 }
 
@@ -234,7 +266,8 @@ function Chunk({
   media,
   cameraGridRef,
   activeTag,
-  onToggleTag
+  selectedUrl,
+  onInteraction
 }: {
   cx: number;
   cy: number;
@@ -242,7 +275,8 @@ function Chunk({
   media: MediaItem[];
   cameraGridRef: React.RefObject<CameraGridState>;
   activeTag: string | null;
-  onToggleTag: (tag: string) => void;
+  selectedUrl: string | null;
+  onInteraction: (tag: string, url: string) => void;
 }) {
   const [planes, setPlanes] = React.useState<PlaneData[] | null>(null);
 
@@ -288,9 +322,9 @@ function Chunk({
             chunkCy={cy}
             chunkCz={cz}
             cameraGridRef={cameraGridRef}
-            // Pass the tag logic down
             activeTag={activeTag}
-            onToggleTag={onToggleTag}
+            isSelected={selectedUrl === mediaItem.url}
+            onInteraction={onInteraction}
           />
         );
       })}
@@ -335,16 +369,26 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
   const isTouchDevice = useIsTouchDevice();
   const [, getKeys] = useKeyboardControls<keyof KeyboardKeys>();
 
-  // --- NEW STATE: Active Tag ---
+  // --- STATE: Active Tag AND Selected Image ---
   const [activeTag, setActiveTag] = React.useState<string | null>(null);
+  const [selectedUrl, setSelectedUrl] = React.useState<string | null>(null);
   
-  // Toggle function: if you click the same tag twice, it deselects
-  const handleToggleTag = React.useCallback((tag: string) => {
-    setActiveTag((prev) => (prev === tag ? null : tag));
-  }, []);
+  const handleInteraction = React.useCallback((tag: string, url: string) => {
+    // If clicking the ALREADY selected image, close everything (reset)
+    if (selectedUrl === url) {
+        setSelectedUrl(null);
+        setActiveTag(null);
+    } else {
+        // Otherwise, open this image and filter by its tag
+        setSelectedUrl(url);
+        setActiveTag(tag);
+    }
+  }, [selectedUrl]);
 
-  // Clear tag if clicking empty space (optional, handled via PointerMissed on Canvas usually, but we can do simple here)
-  // For now, we rely on clicking the same image to toggle off.
+  const handleMissed = () => {
+      setActiveTag(null);
+      setSelectedUrl(null);
+  };
   // -----------------------------
 
   const state = React.useRef<ControllerState>(createInitialState(INITIAL_CAMERA_Z));
@@ -555,11 +599,7 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
     );
   }, [camera]);
 
-  // Handle clicking empty space to clear selection
-  const handleMissed = () => setActiveTag(null);
-
   return (
-    // We attach pointer missed listener to a group wrapper
     <group onPointerMissed={handleMissed}>
       {chunks.map((chunk) => (
         <Chunk 
@@ -569,9 +609,9 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
             cz={chunk.cz} 
             media={media} 
             cameraGridRef={cameraGridRef}
-            // Pass State
             activeTag={activeTag}
-            onToggleTag={handleToggleTag}
+            selectedUrl={selectedUrl}
+            onInteraction={handleInteraction}
         />
       ))}
     </group>
