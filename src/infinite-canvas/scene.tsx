@@ -43,31 +43,25 @@ type KeyboardKeys = {
   down: boolean;
 };
 
-// --- IMPROVED HELPER: Robust Tag Parsing ---
-// This handles commas, extra spaces, AND ignores capitalization
+// --- TAG PARSER ---
 const getTags = (media: MediaItem): string[] => {
     // @ts-ignore
     let rawTags = media.tags;
     
-    // Safety check: if no tags, return empty
     if (!rawTags) return [];
 
-    // If the JSON saved it as a single string "tag1, tag2", wrap it in an array first
+    // Handle string case "tag1, tag2"
     if (typeof rawTags === 'string') {
         rawTags = [rawTags];
     }
 
-    if (!Array.isArray(rawTags) || rawTags.length === 0) return [];
+    if (!Array.isArray(rawTags)) return [];
     
-    // 1. Split by comma (for "tag1, tag2" inside one cell)
-    // 2. Trim spaces (" tag1 " -> "tag1")
-    // 3. Force Lowercase ("Tag1" -> "tag1") for matching
     return rawTags
         .flatMap((t: any) => (typeof t === 'string' ? t.split(',') : []))
         .map((t: string) => t.trim().toLowerCase()) 
         .filter((t: string) => t.length > 0);
 };
-// ---------------------------------------------
 
 const getTouchDistance = (touches: Touch[]) => {
   if (touches.length < 2) {
@@ -114,10 +108,8 @@ function MediaPlane({
   const materialRef = React.useRef<THREE.MeshBasicMaterial>(null);
   const localState = React.useRef({ opacity: 0, frame: 0, ready: false });
 
-  // Get the clean, lowercase list of tags for this image
   const myTags = React.useMemo(() => getTags(media), [media]);
 
-  // Use a ref for the active tags to access them in the loop instantly
   const activeTagsRef = React.useRef(activeTags);
   React.useEffect(() => {
     activeTagsRef.current = activeTags;
@@ -166,17 +158,15 @@ function MediaPlane({
     // --- DIMMING LOGIC ---
     const currentActiveTags = activeTagsRef.current;
     
-    // If there is an active selection
     if (currentActiveTags && currentActiveTags.length > 0) {
-        // If this image ITSELF is selected, stay bright
+        // If Selected, stay bright.
         if (isSelected) {
-             target = target; // Do nothing, stay bright
+             target = target; 
         } else {
-            // Otherwise, check if we share ANY tag
+            // Check for ANY match
             const isMatch = myTags.some(tag => currentActiveTags.includes(tag));
-            
             if (!isMatch) {
-                target = target * 0.05; // Fade out non-matches
+                target = target * 0.05; // Fade out
             }
         }
     }
@@ -248,13 +238,8 @@ function MediaPlane({
             geometry={PLANE_GEOMETRY}
             onClick={(e) => {
                 e.stopPropagation();
-                // We pass 'myTags' (which are already parsed and lowercase) to the controller
-                if (myTags.length > 0) {
-                    onInteraction(myTags, media.url);
-                } else {
-                    // Even if no tags, we still want to select it to show the Title
-                    onInteraction([], media.url);
-                }
+                // Pass tags even if empty, so we can select the image
+                onInteraction(myTags, media.url);
             }}
             onPointerOver={() => { document.body.style.cursor = 'pointer' }}
             onPointerOut={() => { document.body.style.cursor = 'auto' }}
@@ -262,8 +247,9 @@ function MediaPlane({
         <meshBasicMaterial ref={materialRef} transparent opacity={0} side={THREE.DoubleSide} />
         </mesh>
 
-        {/* --- TEXT DISPLAY --- */}
+        {/* --- TEXT DISPLAY WITH SUSPENSE (FIXES FLASH) --- */}
         {isSelected && (
+           <React.Suspense fallback={null}>
             <group position={[0, -displayScale.y / 2 - 0.1, 0]}>
                 {/* Title */}
                 {/* @ts-ignore */}
@@ -274,7 +260,9 @@ function MediaPlane({
                     anchorY="top"
                     maxWidth={displayScale.x} 
                     textAlign="center"
-                    renderOrder={999} // Force text on top
+                    renderOrder={999}
+                    outlineWidth={0.01}
+                    outlineColor="#ffffff"
                 >
                     {/* @ts-ignore */}
                     {media.title || ""}
@@ -291,11 +279,14 @@ function MediaPlane({
                     maxWidth={displayScale.x}
                     textAlign="center"
                     renderOrder={999}
+                    outlineWidth={0.005}
+                    outlineColor="#ffffff"
                 >
                     {/* @ts-ignore */}
                     {media.info || ""}
                 </Text>
             </group>
+           </React.Suspense>
         )}
     </group>
   );
@@ -411,23 +402,20 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
   const isTouchDevice = useIsTouchDevice();
   const [, getKeys] = useKeyboardControls<keyof KeyboardKeys>();
 
-  // --- STATE ---
   const [activeTags, setActiveTags] = React.useState<string[] | null>(null);
   const [selectedUrl, setSelectedUrl] = React.useState<string | null>(null);
   
   const handleInteraction = React.useCallback((tags: string[], url: string) => {
-    // Logic: If clicking the EXACT same image, Deselect.
     if (selectedUrl === url) {
         setSelectedUrl(null);
         setActiveTags(null);
     } else {
-        // Select new image
         setSelectedUrl(url);
-        // If the new image has tags, filter by them. If not, just show the image info.
+        // If image has tags, filter by them. If not, don't dim anything.
         if (tags.length > 0) {
             setActiveTags(tags);
         } else {
-            setActiveTags(null); // No tags to filter by, so don't dim anything
+            setActiveTags(null);
         }
     }
   }, [selectedUrl]);
@@ -436,7 +424,6 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
       setActiveTags(null);
       setSelectedUrl(null);
   };
-  // -----------------------------
 
   const state = React.useRef<ControllerState>(createInitialState(INITIAL_CAMERA_Z));
   const cameraGridRef = React.useRef<CameraGridState>({ cx: 0, cy: 0, cz: 0, camZ: camera.position.z });
@@ -572,7 +559,6 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
     const driftLerp = isZooming ? 0.2 : 0.12;
 
     if (s.isDragging) {
-      // Freeze drift during drag
     } else if (isTouchDevice) {
       s.drift.x = lerp(s.drift.x, 0, driftLerp);
       s.drift.y = lerp(s.drift.y, 0, driftLerp);
