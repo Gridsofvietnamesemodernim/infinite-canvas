@@ -43,6 +43,21 @@ type KeyboardKeys = {
   down: boolean;
 };
 
+// --- HELPER: Parse tags from the raw data ---
+// This splits "Architecture, BW" into ["Architecture", "BW"]
+const getTags = (media: MediaItem): string[] => {
+    // @ts-ignore
+    const rawTags = media.tags;
+    if (!rawTags || !Array.isArray(rawTags) || rawTags.length === 0) return [];
+    
+    // Flatten and split by comma to support "Tag1, Tag2" format
+    return rawTags
+        .flatMap((t: string) => t.split(','))
+        .map((t: string) => t.trim())
+        .filter((t: string) => t.length > 0);
+};
+// ---------------------------------------------
+
 const getTouchDistance = (touches: Touch[]) => {
   if (touches.length < 2) {
     return 0;
@@ -69,7 +84,7 @@ function MediaPlane({
   chunkCy,
   chunkCz,
   cameraGridRef,
-  activeTag,
+  activeTags,
   isSelected,
   onInteraction,
 }: {
@@ -80,19 +95,22 @@ function MediaPlane({
   chunkCy: number;
   chunkCz: number;
   cameraGridRef: React.RefObject<CameraGridState>;
-  activeTag: string | null;
+  activeTags: string[] | null;
   isSelected: boolean;
-  onInteraction: (tag: string, url: string) => void;
+  onInteraction: (tags: string[], url: string) => void;
 }) {
   const meshRef = React.useRef<THREE.Mesh>(null);
   const materialRef = React.useRef<THREE.MeshBasicMaterial>(null);
   const localState = React.useRef({ opacity: 0, frame: 0, ready: false });
 
-  // Ref to track props in the loop without re-rendering
-  const activeTagRef = React.useRef(activeTag);
+  // Get the clean list of tags for this image
+  const myTags = React.useMemo(() => getTags(media), [media]);
+
+  // Use a ref for the active tags to access them in the loop instantly
+  const activeTagsRef = React.useRef(activeTags);
   React.useEffect(() => {
-    activeTagRef.current = activeTag;
-  }, [activeTag]);
+    activeTagsRef.current = activeTags;
+  }, [activeTags]);
 
   const [texture, setTexture] = React.useState<THREE.Texture | null>(null);
   const [isReady, setIsReady] = React.useState(false);
@@ -134,13 +152,16 @@ function MediaPlane({
 
     let target = Math.min(gridFade, depthFade * depthFade);
 
-    // --- Dimming Logic ---
-    const currentActiveTag = activeTagRef.current;
-    if (currentActiveTag) {
-        // @ts-ignore
-        const imageTags = media.tags || [];
-        if (!imageTags.includes(currentActiveTag)) {
-            target = target * 0.05;
+    // --- SMART DIMMING LOGIC ---
+    const currentActiveTags = activeTagsRef.current;
+    
+    // If there are active tags, check if I match ANY of them
+    if (currentActiveTags && currentActiveTags.length > 0) {
+        // Do I have at least one tag in common?
+        const isMatch = myTags.some(tag => currentActiveTags.includes(tag));
+        
+        if (!isMatch) {
+            target = target * 0.05; // Fade out if no match
         }
     }
 
@@ -201,22 +222,19 @@ function MediaPlane({
     return null;
   }
 
-  // --- NEW: Group Wrapper to hold Image AND Text ---
   return (
     <group position={position}>
         <mesh 
             ref={meshRef} 
-            // Position is now 0,0,0 relative to the group
             position={[0,0,0]} 
             scale={displayScale} 
             visible={false} 
             geometry={PLANE_GEOMETRY}
             onClick={(e) => {
                 e.stopPropagation();
-                // @ts-ignore
-                const tags = media.tags;
-                if (tags && tags.length > 0) {
-                    onInteraction(tags[0], media.url);
+                // Pass all my tags to the controller
+                if (myTags.length > 0) {
+                    onInteraction(myTags, media.url);
                 }
             }}
             onPointerOver={() => { document.body.style.cursor = 'pointer' }}
@@ -225,8 +243,7 @@ function MediaPlane({
         <meshBasicMaterial ref={materialRef} transparent opacity={0} side={THREE.DoubleSide} />
         </mesh>
 
-        {/* --- TEXT COMPONENT --- */}
-        {/* Only render if this specific image is selected */}
+        {/* --- TEXT DISPLAY --- */}
         {isSelected && (
             <group position={[0, -displayScale.y / 2 - 0.1, 0]}>
                 {/* Title */}
@@ -236,12 +253,14 @@ function MediaPlane({
                     color="black"
                     anchorX="center"
                     anchorY="top"
+                    maxWidth={displayScale.x} // constrain text width to image width
+                    textAlign="center"
                 >
                     {/* @ts-ignore */}
                     {media.title || ""}
                 </Text>
                 
-                {/* Info / Year (Smaller, below title) */}
+                {/* Info / Year */}
                 {/* @ts-ignore */}
                 <Text
                     position={[0, -0.25, 0]}
@@ -249,6 +268,8 @@ function MediaPlane({
                     color="#666666"
                     anchorX="center"
                     anchorY="top"
+                    maxWidth={displayScale.x}
+                    textAlign="center"
                 >
                     {/* @ts-ignore */}
                     {media.info || ""}
@@ -265,7 +286,7 @@ function Chunk({
   cz,
   media,
   cameraGridRef,
-  activeTag,
+  activeTags,
   selectedUrl,
   onInteraction
 }: {
@@ -274,9 +295,9 @@ function Chunk({
   cz: number;
   media: MediaItem[];
   cameraGridRef: React.RefObject<CameraGridState>;
-  activeTag: string | null;
+  activeTags: string[] | null;
   selectedUrl: string | null;
-  onInteraction: (tag: string, url: string) => void;
+  onInteraction: (tags: string[], url: string) => void;
 }) {
   const [planes, setPlanes] = React.useState<PlaneData[] | null>(null);
 
@@ -322,7 +343,7 @@ function Chunk({
             chunkCy={cy}
             chunkCz={cz}
             cameraGridRef={cameraGridRef}
-            activeTag={activeTag}
+            activeTags={activeTags}
             isSelected={selectedUrl === mediaItem.url}
             onInteraction={onInteraction}
           />
@@ -369,24 +390,24 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
   const isTouchDevice = useIsTouchDevice();
   const [, getKeys] = useKeyboardControls<keyof KeyboardKeys>();
 
-  // --- STATE: Active Tag AND Selected Image ---
-  const [activeTag, setActiveTag] = React.useState<string | null>(null);
+  // --- CHANGED: We now track an Array of strings, not just one ---
+  const [activeTags, setActiveTags] = React.useState<string[] | null>(null);
   const [selectedUrl, setSelectedUrl] = React.useState<string | null>(null);
   
-  const handleInteraction = React.useCallback((tag: string, url: string) => {
-    // If clicking the ALREADY selected image, close everything (reset)
+  const handleInteraction = React.useCallback((tags: string[], url: string) => {
+    // If clicking the same image again, reset everything
     if (selectedUrl === url) {
         setSelectedUrl(null);
-        setActiveTag(null);
+        setActiveTags(null);
     } else {
-        // Otherwise, open this image and filter by its tag
+        // Open the image and filter by ALL its tags
         setSelectedUrl(url);
-        setActiveTag(tag);
+        setActiveTags(tags);
     }
   }, [selectedUrl]);
 
   const handleMissed = () => {
-      setActiveTag(null);
+      setActiveTags(null);
       setSelectedUrl(null);
   };
   // -----------------------------
@@ -609,7 +630,7 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
             cz={chunk.cz} 
             media={media} 
             cameraGridRef={cameraGridRef}
-            activeTag={activeTag}
+            activeTags={activeTags}
             selectedUrl={selectedUrl}
             onInteraction={handleInteraction}
         />
