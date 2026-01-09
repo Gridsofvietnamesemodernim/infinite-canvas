@@ -50,7 +50,6 @@ const getTags = (media: MediaItem): string[] => {
     
     if (!rawTags) return [];
 
-    // Handle string case "tag1, tag2"
     if (typeof rawTags === 'string') {
         rawTags = [rawTags];
     }
@@ -159,14 +158,12 @@ function MediaPlane({
     const currentActiveTags = activeTagsRef.current;
     
     if (currentActiveTags && currentActiveTags.length > 0) {
-        // If Selected, stay bright.
         if (isSelected) {
              target = target; 
         } else {
-            // Check for ANY match
             const isMatch = myTags.some(tag => currentActiveTags.includes(tag));
             if (!isMatch) {
-                target = target * 0.05; // Fade out
+                target = target * 0.05; 
             }
         }
     }
@@ -238,7 +235,6 @@ function MediaPlane({
             geometry={PLANE_GEOMETRY}
             onClick={(e) => {
                 e.stopPropagation();
-                // Pass tags even if empty, so we can select the image
                 onInteraction(myTags, media.url);
             }}
             onPointerOver={() => { document.body.style.cursor = 'pointer' }}
@@ -247,39 +243,39 @@ function MediaPlane({
         <meshBasicMaterial ref={materialRef} transparent opacity={0} side={THREE.DoubleSide} />
         </mesh>
 
-        {/* --- TEXT DISPLAY WITH SUSPENSE (FIXES FLASH) --- */}
+        {/* --- BIG TEXT DISPLAY --- */}
         {isSelected && (
            <React.Suspense fallback={null}>
-            <group position={[0, -displayScale.y / 2 - 0.1, 0]}>
-                {/* Title */}
+            <group position={[0, -displayScale.y / 2 - 0.2, 0]}>
+                {/* Title (Increased Font Size) */}
                 {/* @ts-ignore */}
                 <Text
-                    fontSize={0.2}
+                    fontSize={0.45}  // <--- Was 0.2
                     color="black"
                     anchorX="center"
                     anchorY="top"
                     maxWidth={displayScale.x} 
                     textAlign="center"
                     renderOrder={999}
-                    outlineWidth={0.01}
+                    outlineWidth={0.02} // <--- Thicker outline for bigger text
                     outlineColor="#ffffff"
                 >
                     {/* @ts-ignore */}
                     {media.title || ""}
                 </Text>
                 
-                {/* Info / Year */}
+                {/* Info / Year (Increased Font Size) */}
                 {/* @ts-ignore */}
                 <Text
-                    position={[0, -0.25, 0]}
-                    fontSize={0.12}
+                    position={[0, -0.6, 0]} // <--- Moved down further
+                    fontSize={0.25}  // <--- Was 0.12
                     color="#666666"
                     anchorX="center"
                     anchorY="top"
                     maxWidth={displayScale.x}
                     textAlign="center"
                     renderOrder={999}
-                    outlineWidth={0.005}
+                    outlineWidth={0.01}
                     outlineColor="#ffffff"
                 >
                     {/* @ts-ignore */}
@@ -411,7 +407,6 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
         setActiveTags(null);
     } else {
         setSelectedUrl(url);
-        // If image has tags, filter by them. If not, don't dim anything.
         if (tags.length > 0) {
             setActiveTags(tags);
         } else {
