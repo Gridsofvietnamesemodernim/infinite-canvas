@@ -43,17 +43,28 @@ type KeyboardKeys = {
   down: boolean;
 };
 
-// --- HELPER: Parse tags from the raw data ---
-// This splits "Architecture, BW" into ["Architecture", "BW"]
+// --- IMPROVED HELPER: Robust Tag Parsing ---
+// This handles commas, extra spaces, AND ignores capitalization
 const getTags = (media: MediaItem): string[] => {
     // @ts-ignore
-    const rawTags = media.tags;
-    if (!rawTags || !Array.isArray(rawTags) || rawTags.length === 0) return [];
+    let rawTags = media.tags;
     
-    // Flatten and split by comma to support "Tag1, Tag2" format
+    // Safety check: if no tags, return empty
+    if (!rawTags) return [];
+
+    // If the JSON saved it as a single string "tag1, tag2", wrap it in an array first
+    if (typeof rawTags === 'string') {
+        rawTags = [rawTags];
+    }
+
+    if (!Array.isArray(rawTags) || rawTags.length === 0) return [];
+    
+    // 1. Split by comma (for "tag1, tag2" inside one cell)
+    // 2. Trim spaces (" tag1 " -> "tag1")
+    // 3. Force Lowercase ("Tag1" -> "tag1") for matching
     return rawTags
-        .flatMap((t: string) => t.split(','))
-        .map((t: string) => t.trim())
+        .flatMap((t: any) => (typeof t === 'string' ? t.split(',') : []))
+        .map((t: string) => t.trim().toLowerCase()) 
         .filter((t: string) => t.length > 0);
 };
 // ---------------------------------------------
@@ -103,7 +114,7 @@ function MediaPlane({
   const materialRef = React.useRef<THREE.MeshBasicMaterial>(null);
   const localState = React.useRef({ opacity: 0, frame: 0, ready: false });
 
-  // Get the clean list of tags for this image
+  // Get the clean, lowercase list of tags for this image
   const myTags = React.useMemo(() => getTags(media), [media]);
 
   // Use a ref for the active tags to access them in the loop instantly
@@ -152,16 +163,21 @@ function MediaPlane({
 
     let target = Math.min(gridFade, depthFade * depthFade);
 
-    // --- SMART DIMMING LOGIC ---
+    // --- DIMMING LOGIC ---
     const currentActiveTags = activeTagsRef.current;
     
-    // If there are active tags, check if I match ANY of them
+    // If there is an active selection
     if (currentActiveTags && currentActiveTags.length > 0) {
-        // Do I have at least one tag in common?
-        const isMatch = myTags.some(tag => currentActiveTags.includes(tag));
-        
-        if (!isMatch) {
-            target = target * 0.05; // Fade out if no match
+        // If this image ITSELF is selected, stay bright
+        if (isSelected) {
+             target = target; // Do nothing, stay bright
+        } else {
+            // Otherwise, check if we share ANY tag
+            const isMatch = myTags.some(tag => currentActiveTags.includes(tag));
+            
+            if (!isMatch) {
+                target = target * 0.05; // Fade out non-matches
+            }
         }
     }
 
@@ -232,9 +248,12 @@ function MediaPlane({
             geometry={PLANE_GEOMETRY}
             onClick={(e) => {
                 e.stopPropagation();
-                // Pass all my tags to the controller
+                // We pass 'myTags' (which are already parsed and lowercase) to the controller
                 if (myTags.length > 0) {
                     onInteraction(myTags, media.url);
+                } else {
+                    // Even if no tags, we still want to select it to show the Title
+                    onInteraction([], media.url);
                 }
             }}
             onPointerOver={() => { document.body.style.cursor = 'pointer' }}
@@ -253,8 +272,9 @@ function MediaPlane({
                     color="black"
                     anchorX="center"
                     anchorY="top"
-                    maxWidth={displayScale.x} // constrain text width to image width
+                    maxWidth={displayScale.x} 
                     textAlign="center"
+                    renderOrder={999} // Force text on top
                 >
                     {/* @ts-ignore */}
                     {media.title || ""}
@@ -270,6 +290,7 @@ function MediaPlane({
                     anchorY="top"
                     maxWidth={displayScale.x}
                     textAlign="center"
+                    renderOrder={999}
                 >
                     {/* @ts-ignore */}
                     {media.info || ""}
@@ -390,19 +411,24 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
   const isTouchDevice = useIsTouchDevice();
   const [, getKeys] = useKeyboardControls<keyof KeyboardKeys>();
 
-  // --- CHANGED: We now track an Array of strings, not just one ---
+  // --- STATE ---
   const [activeTags, setActiveTags] = React.useState<string[] | null>(null);
   const [selectedUrl, setSelectedUrl] = React.useState<string | null>(null);
   
   const handleInteraction = React.useCallback((tags: string[], url: string) => {
-    // If clicking the same image again, reset everything
+    // Logic: If clicking the EXACT same image, Deselect.
     if (selectedUrl === url) {
         setSelectedUrl(null);
         setActiveTags(null);
     } else {
-        // Open the image and filter by ALL its tags
+        // Select new image
         setSelectedUrl(url);
-        setActiveTags(tags);
+        // If the new image has tags, filter by them. If not, just show the image info.
+        if (tags.length > 0) {
+            setActiveTags(tags);
+        } else {
+            setActiveTags(null); // No tags to filter by, so don't dim anything
+        }
     }
   }, [selectedUrl]);
 
