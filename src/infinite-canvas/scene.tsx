@@ -86,7 +86,7 @@ function MediaPlane({
   const [texture, setTexture] = React.useState<THREE.Texture | null>(null);
   const [isReady, setIsReady] = React.useState(false);
   
-  // 2. NEW: State to hold the Real Aspect Ratio
+  // 2. Aspect Ratio State
   const [naturalAspect, setNaturalAspect] = React.useState<number>(0);
 
   // Animation Loop
@@ -142,21 +142,19 @@ function MediaPlane({
     setTexture(tex);
   }, [media]);
 
-  // 4. NEW: Detect Real Size when Texture Loads
+  // 4. FIX: Detect Real Size (With "any" cast to fix build error)
   React.useEffect(() => {
     if (texture && texture.image) {
-       // Calculate real aspect ratio (Width / Height)
-       const realAspect = texture.image.width / texture.image.height;
-       setNaturalAspect(realAspect);
+       // @ts-ignore
+       const imgWidth = texture.image.width || (texture.image as any).videoWidth || 1;
+       // @ts-ignore
+       const imgHeight = texture.image.height || (texture.image as any).videoHeight || 1;
+       setNaturalAspect(imgWidth / imgHeight);
     }
   }, [texture, isReady]);
 
-  // 5. Calculate Final Scale (Auto-Detect Logic)
+  // 5. Calculate Final Scale
   const displayScale = React.useMemo(() => {
-    // Priority: 
-    // 1. Natural Aspect (Real image loaded)
-    // 2. JSON Aspect (Fallback from sheet)
-    // 3. Default (Square)
     let finalAspect = 1;
     
     if (naturalAspect > 0) {
@@ -168,15 +166,12 @@ function MediaPlane({
     return new THREE.Vector3(scale.y * finalAspect, scale.y, 1);
   }, [naturalAspect, media.width, media.height, scale]);
 
-  // Apply Texture & Scale
+  // Apply Scale
   React.useEffect(() => {
     const material = materialRef.current; const mesh = meshRef.current; const state = localState.current;
     if (!material || !mesh || !texture || !isReady || !state.ready) return;
     material.map = texture; material.opacity = state.opacity; material.depthWrite = state.opacity >= 1; 
-    
-    // Apply the auto-detected scale
     mesh.scale.copy(displayScale);
-    
   }, [displayScale, texture, isReady]);
 
   if (!texture || !isReady) return null;
