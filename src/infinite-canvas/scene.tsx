@@ -43,19 +43,11 @@ type KeyboardKeys = {
   down: boolean;
 };
 
-// --- ROBUST TAG PARSER (DEBUG VERSION) ---
+// --- TAG PARSER ---
 const getTags = (media: any): string[] => {
-    // Check EVERY possible name for the tag field
     let rawTags = media.tags || media.tag || media.Tags || media.category || [];
-    
-    // Convert single string "tag1, tag2" into array
-    if (typeof rawTags === 'string') {
-        rawTags = [rawTags];
-    }
-
+    if (typeof rawTags === 'string') rawTags = [rawTags];
     if (!Array.isArray(rawTags)) return [];
-    
-    // Clean: Lowercase, Trim, Remove empty
     return rawTags
         .flatMap((t: any) => (typeof t === 'string' ? t.split(',') : []))
         .map((t: string) => t.trim().toLowerCase()) 
@@ -63,7 +55,7 @@ const getTags = (media: any): string[] => {
 };
 
 const getTouchDistance = (touches: Touch[]) => {
-  if (touches.length < 2) { return 0; }
+  if (touches.length < 2) return 0;
   const [t1, t2] = touches;
   const dx = t1.clientX - t2.clientX;
   const dy = t1.clientY - t2.clientY;
@@ -86,16 +78,18 @@ function MediaPlane({
   const materialRef = React.useRef<THREE.MeshBasicMaterial>(null);
   const localState = React.useRef({ opacity: 0, frame: 0, ready: false });
 
-  // PARSE TAGS
+  // 1. Parse Tags
   const myTags = React.useMemo(() => getTags(media), [media]);
-
-  // Keep ref up to date for loop
   const activeTagsRef = React.useRef(activeTags);
   React.useEffect(() => { activeTagsRef.current = activeTags; }, [activeTags]);
 
   const [texture, setTexture] = React.useState<THREE.Texture | null>(null);
   const [isReady, setIsReady] = React.useState(false);
+  
+  // 2. NEW: State to hold the Real Aspect Ratio
+  const [naturalAspect, setNaturalAspect] = React.useState<number>(0);
 
+  // Animation Loop
   useFrame(() => {
     const material = materialRef.current;
     const mesh = meshRef.current;
@@ -117,18 +111,14 @@ function MediaPlane({
     const depthFade = absDepth <= DEPTH_FADE_START ? 1 : Math.max(0, 1 - (absDepth - DEPTH_FADE_START) / Math.max(DEPTH_FADE_END - DEPTH_FADE_START, 0.0001));
     let target = Math.min(gridFade, depthFade * depthFade);
 
-    // --- DIMMING LOGIC ---
+    // Dimming Logic
     const currentActiveTags = activeTagsRef.current;
     if (currentActiveTags && currentActiveTags.length > 0) {
         if (isSelected) {
-             // Selected image stays 100% bright
              target = target; 
         } else {
-            // Check intersection
             const isMatch = myTags.some(tag => currentActiveTags.includes(tag));
-            if (!isMatch) {
-                target = target * 0.05; // Fade to 5%
-            }
+            if (!isMatch) target = target * 0.05;
         }
     }
 
@@ -139,26 +129,54 @@ function MediaPlane({
     mesh.visible = state.opacity > INVIS_THRESHOLD;
   });
 
-  const displayScale = React.useMemo(() => {
-    if (media.width && media.height) {
-      const aspect = media.width / media.height;
-      return new THREE.Vector3(scale.y * aspect, scale.y, 1);
-    }
-    return scale;
-  }, [media.width, media.height, scale]);
-
+  // 3. Load Texture
   React.useEffect(() => {
     const state = localState.current; state.ready = false; state.opacity = 0; setIsReady(false);
     const material = materialRef.current;
     if (material) { material.opacity = 0; material.depthWrite = false; material.map = null; }
-    const tex = getTexture(media, () => { state.ready = true; setIsReady(true); });
+    
+    const tex = getTexture(media, () => { 
+        state.ready = true; 
+        setIsReady(true);
+    });
     setTexture(tex);
   }, [media]);
 
+  // 4. NEW: Detect Real Size when Texture Loads
+  React.useEffect(() => {
+    if (texture && texture.image) {
+       // Calculate real aspect ratio (Width / Height)
+       const realAspect = texture.image.width / texture.image.height;
+       setNaturalAspect(realAspect);
+    }
+  }, [texture, isReady]);
+
+  // 5. Calculate Final Scale (Auto-Detect Logic)
+  const displayScale = React.useMemo(() => {
+    // Priority: 
+    // 1. Natural Aspect (Real image loaded)
+    // 2. JSON Aspect (Fallback from sheet)
+    // 3. Default (Square)
+    let finalAspect = 1;
+    
+    if (naturalAspect > 0) {
+        finalAspect = naturalAspect;
+    } else if (media.width && media.height) {
+        finalAspect = media.width / media.height;
+    }
+    
+    return new THREE.Vector3(scale.y * finalAspect, scale.y, 1);
+  }, [naturalAspect, media.width, media.height, scale]);
+
+  // Apply Texture & Scale
   React.useEffect(() => {
     const material = materialRef.current; const mesh = meshRef.current; const state = localState.current;
     if (!material || !mesh || !texture || !isReady || !state.ready) return;
-    material.map = texture; material.opacity = state.opacity; material.depthWrite = state.opacity >= 1; mesh.scale.copy(displayScale);
+    material.map = texture; material.opacity = state.opacity; material.depthWrite = state.opacity >= 1; 
+    
+    // Apply the auto-detected scale
+    mesh.scale.copy(displayScale);
+    
   }, [displayScale, texture, isReady]);
 
   if (!texture || !isReady) return null;
@@ -177,25 +195,14 @@ function MediaPlane({
         {isSelected && (
            <React.Suspense fallback={null}>
             <group position={[0, -displayScale.y / 2 - 0.2, 0]}>
-                {/* Title */}
-                {/* @ts-ignore */}
                 <Text fontSize={0.45} color="black" anchorX="center" anchorY="top" maxWidth={displayScale.x} textAlign="center" renderOrder={999} outlineWidth={0.02} outlineColor="#ffffff">
                     {/* @ts-ignore */}
                     {media.title || ""}
                 </Text>
-                
-                {/* Info */}
-                {/* @ts-ignore */}
                 <Text position={[0, -0.6, 0]} fontSize={0.25} color="#666666" anchorX="center" anchorY="top" maxWidth={displayScale.x} textAlign="center" renderOrder={999} outlineWidth={0.01} outlineColor="#ffffff">
                     {/* @ts-ignore */}
                     {media.info || ""}
                 </Text>
-
-                {/* --- DEBUG LINE (Temporary) --- */}
-                <Text position={[0, -1.0, 0]} fontSize={0.15} color="red" anchorX="center" anchorY="top" renderOrder={999}>
-                    TAGS FOUND: {myTags.length > 0 ? myTags.join(", ") : "[NONE]"}
-                </Text>
-
             </group>
            </React.Suspense>
         )}
@@ -241,7 +248,7 @@ function Chunk({ cx, cy, cz, media, cameraGridRef, activeTags, selectedUrl, onIn
   );
 }
 
-// ... Controller and Scene remain standard ...
+// Controller Logic
 function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onTextureProgress?: (progress: number) => void }) {
   const { camera, gl } = useThree();
   const isTouchDevice = useIsTouchDevice();
@@ -255,7 +262,6 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
         setSelectedUrl(null); setActiveTags(null);
     } else {
         setSelectedUrl(url);
-        // We set active tags even if empty, so we can see the debug info
         if (tags.length > 0) setActiveTags(tags);
         else setActiveTags(null);
     }
@@ -263,7 +269,6 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
 
   const handleMissed = () => { setActiveTags(null); setSelectedUrl(null); };
 
-  // ... (Controller Logic is identical to previous versions, just condensed for copy/paste speed) ...
   const state = React.useRef<any>(createInitialState(INITIAL_CAMERA_Z));
   const cameraGridRef = React.useRef<CameraGridState>({ cx: 0, cy: 0, cz: 0, camZ: camera.position.z });
   const [chunks, setChunks] = React.useState<ChunkData[]>([]);
